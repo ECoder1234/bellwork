@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bellwork Class Dashboard</title>
+<meta name="description" content="Teacher dashboard for Bellwork: Tales from the Math Lab. Create students, give them a join code and choose their math subjects.">
+<!-- Where the API is. "same-origin": this server (local use, or the tunnel address itself). The GitHub Pages copy
+     (tools/build_dashboard_pages.sh) says "discover:../api.json": the current tunnel address is read from there. -->
+<meta name="bellwork-api" content="discover:../api.json">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.trycloudflare.com http://127.0.0.1:* http://localhost:*; base-uri 'none'; form-action 'self'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="static/style.css">
+<script src="static/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="bell" aria-hidden="true"></span>
+    <div>
+      <div class="brand-title">Bellwork</div>
+      <div class="brand-sub">Class dashboard</div>
+    </div>
+  </div>
+  <div class="who" id="who" hidden>
+    <span id="who-name"></span>
+    <button type="button" class="btn ghost" id="logout">Log out</button>
+  </div>
+</header>
+
+<main id="main">
+  <p class="banner" id="banner" role="status" hidden></p>
+  <p class="banner test-server" id="test-server" hidden></p>
+
+  <!-- ============================================================ server not reachable -->
+  <section id="offline-view" hidden>
+    <div class="card offline">
+      <h1>The class server is offline right now</h1>
+      <p id="offline-text">The teacher's computer must be on (and the class server running) for the dashboard and
+        "Join my class" to work. Your class list is safe: it is stored on that computer.</p>
+      <p class="note" id="offline-detail"></p>
+      <button type="button" class="btn primary" id="retry">Try again</button>
+    </div>
+  </section>
+
+  <!-- ============================================================ signed out -->
+  <section id="auth-view" hidden>
+    <div class="intro">
+      <h1>Bellwork for your class</h1>
+      <p>Create a student, give them their 6-character code, and choose which math they practise. Students type the code
+        in the game (<b>Join my class</b>) and their jobs turn into the subjects you picked.</p>
+    </div>
+    <div class="grid two">
+      <form class="card" id="login-form" autocomplete="on">
+        <h2>Log in</h2>
+        <label>Username <input name="username" autocomplete="username" required maxlength="32"></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <p class="error" data-error></p>
+        <button class="btn primary" type="submit">Log in</button>
+      </form>
+      <form class="card" id="register-form" autocomplete="on">
+        <h2>New teacher account</h2>
+        <p class="note">No e-mail needed. Keep your password somewhere safe: there is no reset by e-mail.</p>
+        <label>Your name for students <input name="display_name" placeholder="Ms. Lee" required maxlength="40"></label>
+        <label>Username <input name="username" autocomplete="username" required minlength="3" maxlength="32"
+          placeholder="lowercase letters and numbers"></label>
+        <label>Password <input name="password" type="password" autocomplete="new-password" required minlength="8"
+          placeholder="at least 8 characters"></label>
+        <p class="error" data-error></p>
+        <button class="btn primary" type="submit">Create account</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============================================================ signed in -->
+  <section id="class-view" hidden>
+    <div class="grid add-row">
+      <form class="card" id="add-form">
+        <h2>Add a student</h2>
+        <label>First name or nickname
+          <input name="name" maxlength="24" required autocomplete="off" placeholder="Sam, or a nickname">
+        </label>
+        <p class="warn">Only a first name or a nickname. Never a full name: the code card and the game show this name.</p>
+        <p class="warn soft" id="name-warning" hidden>That looks like a full name. Please use just a first name or a nickname.</p>
+        <fieldset class="grade-pick">
+          <legend>Grade</legend>
+          <label class="pill"><input type="radio" name="grade" value="6" required> Grade 6</label>
+          <label class="pill"><input type="radio" name="grade" value="7"> Grade 7</label>
+        </fieldset>
+        <fieldset>
+          <legend>What should they practise?</legend>
+          <div class="subjects" data-subjects></div>
+        </fieldset>
+        <p class="error" data-error></p>
+        <button class="btn primary" type="submit">Add student</button>
+      </form>
+    </div>
+
+    <div class="list-head">
+      <h2>Your class <span class="count" id="count"></span></h2>
+      <div class="list-actions">
+        <button type="button" class="btn" id="refresh">Refresh</button>
+        <button type="button" class="btn" id="print">Print code cards</button>
+      </div>
+    </div>
+    <p class="note" id="empty" hidden>No students yet. Add your first student above.</p>
+    <div class="students" id="students"></div>
+  </section>
+</main>
+
+<!-- printable code cards (filled just before printing) -->
+<section id="print-sheet" aria-hidden="true"></section>
+
+<!-- ============================================================ dialogs -->
+<dialog id="edit-dialog">
+  <form method="dialog" id="edit-form">
+    <h2>Edit <span data-name></span></h2>
+    <label>First name or nickname <input name="name" maxlength="24" required autocomplete="off"></label>
+    <fieldset class="grade-pick">
+      <legend>Grade</legend>
+      <label class="pill"><input type="radio" name="grade" value="6"> Grade 6</label>
+      <label class="pill"><input type="radio" name="grade" value="7"> Grade 7</label>
+    </fieldset>
+    <fieldset>
+      <legend>What should they practise?</legend>
+      <div class="subjects" data-subjects></div>
+    </fieldset>
+    <p class="note">The game picks up the change the next time the student plays (or within a minute if they are playing now).</p>
+    <p class="error" data-error></p>
+    <div class="row-end">
+      <button class="btn ghost" value="cancel" type="button" data-close>Cancel</button>
+      <button class="btn primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="progress-dialog">
+  <div class="dialog-body">
+    <div class="row-between">
+      <h2 data-name></h2>
+      <button class="btn ghost" type="button" data-close>Close</button>
+    </div>
+    <p class="note">Teacher view only. Students never see this as a score: in the game, every wrong answer gets an
+      explanation and the worked solution appears after three tries.</p>
+    <div data-body></div>
+  </div>
+</dialog>
+
+<dialog id="confirm-dialog">
+  <form method="dialog">
+    <h2 data-title></h2>
+    <p data-text></p>
+    <div class="row-end">
+      <button class="btn ghost" value="no" type="submit">Keep it</button>
+      <button class="btn danger" value="yes" type="submit" data-yes>Yes</button>
+    </div>
+  </form>
+</dialog>
+
+<template id="student-tpl">
+  <article class="student card">
+    <div class="row-between">
+      <div>
+        <h3 data-name></h3>
+        <div class="meta" data-meta></div>
+      </div>
+      <div class="code-box">
+        <div class="code" data-code></div>
+        <button type="button" class="btn small" data-copy>Copy code</button>
+      </div>
+    </div>
+    <div class="chips" data-chips></div>
+    <div class="progress">
+      <div class="bar"><span data-bar></span></div>
+      <div class="meta" data-progress></div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn small" data-act="progress">Progress</button>
+      <button type="button" class="btn small" data-act="edit">Edit</button>
+      <button type="button" class="btn small" data-act="code">New code</button>
+      <button type="button" class="btn small danger-text" data-act="delete">Delete</button>
+    </div>
+  </article>
+</template>
+</body>
+</html>
